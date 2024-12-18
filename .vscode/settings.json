@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "inverter_function.h": "c",
+        "parameterdefined.h": "c",
+        "common.h": "c"
+    }
+}

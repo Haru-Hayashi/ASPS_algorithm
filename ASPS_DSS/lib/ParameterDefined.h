@@ -12,6 +12,4 @@
 #define VV_NUM 7  // 探索するベクトルの本数 -> VV_NUM-1
 #define V_DC 282  // DCリンク電圧
 
-#define Test
-
 #endif

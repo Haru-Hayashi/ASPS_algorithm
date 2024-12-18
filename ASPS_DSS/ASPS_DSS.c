@@ -8,7 +8,12 @@
 #include "lib/Inverter_function.h"
 
 // オブジェクト
-Integral_model Integral_param;
+Vector_parameter Vout;
+Vector_parameter Vref;
+Integral_model VI_data;
+Integral_model VI;
+Inverter_parameter Inv_param;
+
 int f_ref;
 double omega_ref;
 double Ts = 10e-6;
@@ -146,7 +151,7 @@ int SwCntTable[8][8] =
 
 int main(void){
 	// ファイルの保存先フォルダとファイル名を指定
-    const char *folderPath = "C:\\Haru_Hayashi\\ASPS_algorithm\\data\\"; // フォルダのパス
+	const char *folderPath = "D:\\Remoto\\ASPS_algorithm\\ASPS_DSS\\data\\";  // フォルダのパス
 	const char *fileNames[] = {"test.csv", "test2.csv", "test3.csv"};	
 
 	// FILE * ポインタの配列を宣言
@@ -174,9 +179,9 @@ int main(void){
 
 	// ********** 許容値の設定 ********** //
 	Boundary = 12.0e-3;       // 境界幅 (境界付きで探索するときに使用)
-	SwCnt_limit = 6;          // スイッチング回数の上限値
+	SwCnt_limit = 5;          // スイッチング回数の上限値
 	SwCnt_min = SwCnt_limit;  // 現在のスイッチング回数の最小値
-	Perr_nrm_eva_limit = 0.5; // DSSの上限値
+	Perr_nrm_eva_limit = 0.6; // DSSの上限値
 
 	Kvf = V_DC*1/sqrt(2)/360;
 	Vref_nrm = Kvf*omega_ref;
@@ -185,17 +190,21 @@ int main(void){
 	start_clock2 = clock();
 
 	// ********** DFSの基づくASPSの処理開始(基本12回ループ) ********** //
+
+	//　インバータの出力可能な電圧ベクトルを計算
+	Inv_UpdateOutputVoltage(&Inv_param);
+
 	for(k = 0; k < DFS_Loop; ++k){
 		Loop_Time++;
 		start_clock = clock();
 
 		// VI指令値の計算とデータ格納 
-		for(i = 0; i < DFS_MAX * Mul_Reso; ++i){
-			Pref_a_tmp += Vref_nrm*cos(Integral_param.theta_ref)*Ts/Mul_Reso;
-			Pref_b_tmp += Vref_nrm*cos(Integral_param.theta_ref-pi*(0.5))*Ts/Mul_Reso;
-			Integral_param.Pref_a[i] = Pref_a_tmp;
-			Integral_param.Pref_b[i] = Pref_b_tmp;
-			Integral_param.theta_ref += omega_ref*Ts/Mul_Reso;
+		for(j = 0; j < DFS_MAX * Mul_Reso; ++j){
+			Pref_a_tmp += Vref_nrm*cos(VI_data.theta_ref)*Ts/Mul_Reso;
+			Pref_b_tmp += Vref_nrm*cos(VI_data.theta_ref-pi*(0.5))*Ts/Mul_Reso;
+			VI_data.Pref_a[j] = Pref_a_tmp;
+			VI_data.Pref_b[j] = Pref_b_tmp;
+			VI_data.theta_ref += omega_ref*Ts/Mul_Reso;
 		}
 
 		loop:
@@ -206,36 +215,39 @@ int main(void){
 		N = N_act;
 
 		// VV_sequenceからVIを計算してデータを保存
-		for(i = 1; i <= DFS_MAX; ++i){
-
-			VectorVoltage(tree[i][N], V_DC, &Vest_a[0], &Vest_b[0]);
-			Vector[0] = tree[i][N];
+		for(j = 1; j <= DFS_MAX; ++j){
+			Vout.ab[0] = Inv_param.vout[tree[j][N]].ab[0];
+			Vout.ab[1] = Inv_param.vout[tree[j][N]].ab[1];
+			Vector[0] = tree[j][N];
 
 			/******************最終値と初期値をつなげる処理******************/
 			//ベクトル6を打ち続ける処理
-			if(Integral_param.theta_ref > 5.8 && Pout_b[0] < 1.5e-2){
-				VectorVoltage(6, V_DC, &Vest_a[0], &Vest_b[0]);
+			if(VI_data.theta_ref > 5.8 && VI_data.Pout.ab[1] < 1.5e-2){
+				Vout.ab[0] = Inv_param.vout[6].ab[0];
+				Vout.ab[1] = Inv_param.vout[6].ab[1];
 				Vector[0] = 6;
 				if(Vector[1] != Vector[0] && flag_zero != 1 && flag_zero != 2){
 					SwCnt_min_total++;
 				}
 			}
 			//出力値が初期値に戻ったら零ベクトルを打ち続けるフラグ
-			if(Integral_param.theta_ref > 5.8 && fabs(Pout_a[0]) < 1.0e-6){
+			if(VI_data.theta_ref > 5.8 && fabs(VI_data.Pout.ab[0]) < 1.0e-6){
 				//Count_enc = 1;
 				flag_zero = 2;
 			}
 			//ベクトル1を打ち続ける処理
 			if(flag_zero == 1){
-				VectorVoltage(1, V_DC, &Vest_a[0], &Vest_b[0]);
-				Vector[0] = 1;
+				Vout.ab[0] = Inv_param.vout[1].ab[0];
+				Vout.ab[1] = Inv_param.vout[1].ab[1];
+				// Vector[0] = 1;
 				if(Vector[1] != Vector[0]){
 					SwCnt_min_total++;
 				}
 			//}
 			//零ベクトルを打ち続ける
 			}else if(flag_zero == 2){
-				VectorVoltage(0, V_DC, &Vest_a[0], &Vest_b[0]);
+				Vout.ab[0] = Inv_param.vout[0].ab[0];
+				Vout.ab[1] = Inv_param.vout[0].ab[1];
 				Vector[0] = 0;
 				if(Vector[1] != Vector[0]){
 					SwCnt_min_total++;
@@ -243,22 +255,22 @@ int main(void){
 			}
 			/***************************************************************/
 
-			Pout_a[0] += Vest_a[0]*Ts;
-			Pout_b[0] += Vest_b[0]*Ts;
+			VI_data.Pout.ab[0] += Vout.ab[0]*Ts;
+			VI_data.Pout.ab[1] += Vout.ab[1]*Ts;
 
 			/******************最終地と初期値をつなげる処理******************/
 			//ベクトル6を打ち続けてα軸にあたるときのフラグ
-			if(Integral_param.theta_ref > 5.8 && Vector[0] == 6 && fabs(Pout_b[0]) < 1.0e-6){
+			if(VI_data.theta_ref > 5.8 && Vector[0] == 6 && fabs(VI_data.Pout.ab[1]) < 1.0e-6){
 				flag_zero = 1;
 			}
 			/**************************************************************/
 
-			Perr_a[0] = Pout_a[0] - Integral_param.Pref_a[i*Mul_Reso-Mul_Reso];
-			Perr_b[0] = Pout_b[0] - Integral_param.Pref_b[i*Mul_Reso-Mul_Reso];
-			Perr_nrm[0] = sqrt(Perr_a[0]*Perr_a[0]+Perr_b[0]*Perr_b[0]);
-			Perr_nrm_total += Perr_nrm[0];
-			Pout_nrm = sqrt(Pout_a[0]*Pout_a[0] + (Pout_b[0]-Kvf)*(Pout_b[0]-Kvf));
-			Pref_nrm = sqrt(Integral_param.Pref_a[i*Mul_Reso-Mul_Reso]*Integral_param.Pref_a[i*Mul_Reso-Mul_Reso]+(Integral_param.Pref_b[i*Mul_Reso-Mul_Reso]-Kvf)*(Integral_param.Pref_b[i*Mul_Reso-Mul_Reso]-Kvf));
+			VI_data.Perr.ab[0] = VI_data.Pout.ab[0] - VI_data.Pref_a[j*Mul_Reso-Mul_Reso];
+			VI_data.Perr.ab[1] = VI_data.Pout.ab[1] - VI_data.Pref_b[j*Mul_Reso-Mul_Reso];
+			VI_data.Perr_nrm = sqrt(VI_data.Perr.ab[0]*VI_data.Perr.ab[0]+VI_data.Perr.ab[1]*VI_data.Perr.ab[1]);
+			Perr_nrm_total += VI_data.Perr_nrm;
+			Pout_nrm = sqrt(VI_data.Pout.ab[0]*VI_data.Pout.ab[0] + (VI_data.Pout.ab[1]-Kvf)*(VI_data.Pout.ab[1]-Kvf));
+			Pref_nrm = sqrt(VI_data.Pref_a[j*Mul_Reso-Mul_Reso]*VI_data.Pref_a[j*Mul_Reso-Mul_Reso]+(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf)*(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf));
 
 			//ベクトル番号をエンコードして保存
 			if(Vector[0] != Vector[1]){
@@ -269,22 +281,22 @@ int main(void){
 			}
 			Vector[1] = Vector[0];
 
-			// t = Ts*(i-1)+Ts*DFS_MAX*k;
+			// t = Ts*(j-1)+Ts*DFS_MAX*k;
 			t += Ts;
 
 			//指令値が初期値にきたら終わる
-			if(Integral_param.theta_ref > 5.8 && Integral_param.Pref_a[i*Mul_Reso-Mul_Reso] > Vref_nrm*Ts){
+			if(VI_data.theta_ref > 5.8 && VI_data.Pref_a[j*Mul_Reso-Mul_Reso] > Vref_nrm*Ts){
 				Count_enc -= 1;
 				fprintf(fps[1], "%d, %d\n", Vector[1], Count_enc);
 				Count_enc = 1;
 				goto stop;
 			}
-			// fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, Pout_a[0], Pout_b[0], Integral_param.Pref_a[i-1], Integral_param.Pref_b[i-1], Boundary, Perr_nrm[0], Vtheta_tmp[i-1], Vector[0]);
-			fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, Pout_a[0], Pout_b[0], Integral_param.Pref_a[i*Mul_Reso-Mul_Reso], Integral_param.Pref_b[i*Mul_Reso-Mul_Reso], Boundary, Perr_nrm[0], Pout_nrm, Kvf+Boundary, Kvf-Boundary, Pref_nrm, Integral_param.theta_ref, Vector[0]);
+			// fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j-1], VI_data.Pref_b[j-1], Boundary, VI_data.Perr_nrm, Vtheta_tmp[j-1], Vector[0]);
+			fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j*Mul_Reso-Mul_Reso], VI_data.Pref_b[j*Mul_Reso-Mul_Reso], Boundary, VI_data.Perr_nrm, Pout_nrm, Kvf+Boundary, Kvf-Boundary, Pref_nrm, VI_data.theta_ref, Vector[0]);
 		}
 
-		Pest_a[1] = Pout_a[0];
-		Pest_b[1] = Pout_b[0];
+		VI.Pout.ab[0] = VI_data.Pout.ab[0];
+		VI.Pout.ab[1] = VI_data.Pout.ab[1];
 
 		vector[0] = tree[DFS_MAX][N];
 		Vector_tmp = tree[DFS_MAX-1][N];
@@ -296,9 +308,9 @@ int main(void){
 			SwCnt[j] = 0;
 			Perr_nrm_eva[j] = 0;
 		}
-		for(i = 0; i <= DFS_MAX; ++i){
-			for(j = 0; j < 2; ++j){
-				tree[i][j] = 0;
+		for(j = 0; j <= DFS_MAX; ++j){
+			for(i = 0; i < 2; ++i){
+				tree[j][i] = 0;
 			}
 		}
 
@@ -356,12 +368,13 @@ void VectorSearch(){
 
 	for(i = 0; i < VV_NUM; ++i){
 
-		VectorVoltage(i, V_DC, &Vest_a[i], &Vest_b[i]);
-		Pest_a[1] += Ts*Vest_a[i];
-		Pest_b[1] += Ts*Vest_b[i];
-		Perr_a[1] = Pest_a[1] - Integral_param.Pref_a[StepLevel[0]*Mul_Reso];
-		Perr_b[1] = Pest_b[1] - Integral_param.Pref_b[StepLevel[0]*Mul_Reso];
-		Perr_nrm[1] = sqrt(Perr_a[1]*Perr_a[1]+Perr_b[1]*Perr_b[1]);
+		Vout.ab[0] = Inv_param.vout[i].ab[0];
+		Vout.ab[1] = Inv_param.vout[i].ab[1];
+		VI.Pout.ab[0] += Ts*Vout.ab[0];
+		VI.Pout.ab[1] += Ts*Vout.ab[1];
+		VI.Perr.ab[0] = VI.Pout.ab[0] - VI_data.Pref_a[StepLevel[0]*Mul_Reso];
+		VI.Perr.ab[1] = VI.Pout.ab[1] - VI_data.Pref_b[StepLevel[0]*Mul_Reso];
+		VI.Perr_nrm = sqrt(VI.Perr.ab[0]*VI.Perr.ab[0]+VI.Perr.ab[1]*VI.Perr.ab[1]);
 
 		//探索ベクトル制限(非零ベクトル2,零ベクトル2,合計4本)
 		StepLevel_cont = StepLevel[0]+DFS_MAX_SUM;
@@ -370,7 +383,7 @@ void VectorSearch(){
 		}
 	
 		//許容値に入っているか比較する。入ってなければfor文がまわる
-		// if(fabs(Perr_nrm[1]) < fabs(Boundary)){ 
+		// if(fabs(VI.Perr_nrm) < fabs(Boundary)){ 
 			i_temp[StepLevel[0]] = i;
 			vector[2] = vector[1];
 			vector[1] = vector[0];  //前回のベクトル番号を保存しておく
@@ -391,13 +404,13 @@ void VectorSearch(){
 				goto END;
 			}
 
-			Perr_nrm_eva[N] += Perr_nrm[1]; //スイッチングの枝切りがなければ評価エラー加算
-			Perr_nrm_tmp[StepLevel[0]] = Perr_nrm[1]; 
+			Perr_nrm_eva[N] += VI.Perr_nrm; //スイッチングの枝切りがなければ評価エラー加算
+			Perr_nrm_tmp[StepLevel[0]] = VI.Perr_nrm; 
 
 			//電圧積分誤差による枝切り
 			if(Perr_nrm_eva[N] > Perr_nrm_eva_limit){
 				Perr_skip++; //確認用
-				Perr_nrm_eva[N] -= Perr_nrm[1];
+				Perr_nrm_eva[N] -= VI.Perr_nrm;
 				SwCnt[N] -= SwCntTable[vector[0]][vector[1]];
 				StepLevel[0]--;
 				vector[0] = vector[1];
@@ -405,7 +418,7 @@ void VectorSearch(){
 				goto END;
 			}
 
-			// Perr_nrm_tmp[StepLevel[0]] = Perr_nrm[1]; 
+			// Perr_nrm_tmp[StepLevel[0]] = VI.Perr_nrm; 
 
 			/****************************任意のステップ数になった時の処理****************************/
 			if(StepLevel[0] == DFS_MAX){
@@ -439,7 +452,7 @@ void VectorSearch(){
 				/***************************************************************************/
 				
 				SwCnt[N] -= SwCntTable[vector[0]][vector[1]]; //ひとつ前の階層に戻るのでスイッチングカウントをひとつ前に戻す
-				Perr_nrm_eva[N] -= Perr_nrm[1]; //エラーもひとつ前に戻す
+				Perr_nrm_eva[N] -= VI.Perr_nrm; //エラーもひとつ前に戻す
 				Pattern_Count++; //ベクトルパターン数更新(確認用)
 				vector[0] = vector[1];
 				vector[1] = tree[StepLevel[0]-2][N];
@@ -462,9 +475,10 @@ void VectorSearch(){
 
 		END: //枝切時とゴール後の再起呼び出しスキップ場所
 
-		VectorVoltage(i, V_DC, &Vest_a[i], &Vest_b[i]);
-		Pest_a[1] -= Ts*Vest_a[i];  //前回の積分値に戻る
-		Pest_b[1] -= Ts*Vest_b[i];	//同上
+		Vout.ab[0] = Inv_param.vout[i].ab[0];
+		Vout.ab[1] = Inv_param.vout[i].ab[1];
+		VI.Pout.ab[0] -= Ts*Vout.ab[0];  //前回の積分値に戻る
+		VI.Pout.ab[1] -= Ts*Vout.ab[1];	//同上
 	}	
 	/* -----for文がすべて回った場合の処理---- */
 	SwCnt[N] -= SwCntTable[vector[1]][vector[0]];
