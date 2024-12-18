@@ -18,84 +18,36 @@ int f_ref;
 double omega_ref;
 double Ts = 10e-6;
 
-int i;
-int j;
-int k;
+int i, j, k;
 double t;
-double A;
-double theta;
 
-// VIモデル関連
+// インバータモデル
 float Pref_a_tmp, Pref_b_tmp;
-
-static double Vout_u[3], Vout_v[3], Vout_w[3];
-double Vout_a[3], Vout_b[3];
-double Vref_a[3], Vref_b[3];
-static double Pout_a[3], Pout_b[3];
-static double Perr_a[3], Perr_b[3];
 double Vref_nrm = 0.0;
-double Perr_nrm[3];
-double once_Perr;
-double Vest_a[8], Vest_b[8];
-static double Pest_a[8], Pest_b[8];
-double Vtheta_ref_tmp;
-double Vtheta2;
-double min_Perr = 1e6;
-int min_vector;
+double Mod;
 
-int u = 0, v = 0, w = 0;
-static int U[2];
-double Vu_inv = 0.0, Vv_inv = 0.0, Vw_inv = 0.0;
-double Vwu = 0.0, Vuv = 0.0, Vvw = 0.0;
-double Vu = 0.0, Vv = 0.0, Vw = 0.0;
-
-static double Vz;
-double V_amp;
-double mod;
-int k = 0;
-int n = 0;
-// int N[2] = {0,1};
+// DFS
+int DFS_Loop;
+int DFS_MAX;
+int Step_MAX;
+int n;
+int N;
 int N_act;
-int N = 0;
 long long Pattern_Count;
-int P = 0, P2 = 0, P3 = 0;
 int tree[100][10000];
 int SwCnt[100];
 int vector[3];
 int Vector_tmp;
 int vector0_tmp[2];
 int StepLevel[2] = {0,0};
-int StepVIRTM;
-//volatile int Line_flag[10] = 0x00;
-int Line_flag[1000][8];
 volatile double Boundary = 0.0;
-double nothing;
-int Flag;
 double SwFreq;
-int temp;
 double t;
 int SwCnt_min;
 int SwCnt_min_total;
-int optimal_pattern;
-int optimal_count;
-int jump;
 int sector;
-double phase;
 int renew;
 int renew_max;
-int Sw_rep[100000];
-int C_eva;
-int C_eva_max;
-int lastplot;
-double Mod;
-
-double Err_a, Err_b;
-double Grad_a, Grad_b;
-double N_lim_a, N_lim_b;
-
-int DFS_Loop;
-int DFS_MAX;
-int Step_MAX;
 
 double Perr_nrm_eva[2];
 double Perr_nrm_eva_min;
@@ -125,14 +77,9 @@ clock_t start_clock2, end_clock2;
 
 /*確認用変数*/////////
 int Vector[3];
-int Vector_enc[2];
 int Count_enc;
-int flag_s;
 int Loop_Time;
 long long Node_Counter;
-int flag_OT;
-int Perr_skip;
-int Perr_sum;
 ///////////////////
 
 int SwCntTable[8][8] = 
@@ -346,15 +293,11 @@ int main(void){
 	printf("flag_zero=%d\n", flag_Pa_zero);
 	printf("Minimum SwCnt=%d\n", SwCnt_min_total);
 	printf("Minimum SwFreq=%f\n", SwFreq);
-	printf("Optimal Count=%d\n", Sw_rep[renew]+1);
 	printf("SwCnt_renew=%d\n", renew);
 	printf("How many patterns=%d\n", Pattern_Count);
-	printf("last_plot=%d\n", lastplot);
 	printf("CPU_clock=%f\n", (double)(end_clock2-start_clock2)/CLOCKS_PER_SEC);
-	printf("Perr_skip=%d\n", Perr_skip);
 	printf("Perr_nrm_limit=%f\n", Perr_nrm_eva_limit);
 	printf("Perr_nrm_total=%f\n", Perr_nrm_total);
-	printf("Perr_sum=%d\n", Perr_sum);
 
     for(i = 0; i < FileNum; i++){
 		// ファイルを閉じる
@@ -363,17 +306,19 @@ int main(void){
 	
 }
 
-
 void VectorSearch(){
 
 	for(i = 0; i < VV_NUM; ++i){
 
+		// i番目の電圧ベクトルノードを参照して出力VIを計算
 		Vout.ab[0] = Inv_param.vout[i].ab[0];
 		Vout.ab[1] = Inv_param.vout[i].ab[1];
 		VI.Pout.ab[0] += Ts*Vout.ab[0];
 		VI.Pout.ab[1] += Ts*Vout.ab[1];
+		// 現在のレイヤー(StepLevel)の指令VIを参照してVI誤差を計算
 		VI.Perr.ab[0] = VI.Pout.ab[0] - VI_data.Pref_a[StepLevel[0]*Mul_Reso];
 		VI.Perr.ab[1] = VI.Pout.ab[1] - VI_data.Pref_b[StepLevel[0]*Mul_Reso];
+		// VI誤差ノルムを計算
 		VI.Perr_nrm = sqrt(VI.Perr.ab[0]*VI.Perr.ab[0]+VI.Perr.ab[1]*VI.Perr.ab[1]);
 
 		//探索ベクトル制限(非零ベクトル2,零ベクトル2,合計4本)
@@ -409,7 +354,6 @@ void VectorSearch(){
 
 			//電圧積分誤差による枝切り
 			if(Perr_nrm_eva[N] > Perr_nrm_eva_limit){
-				Perr_skip++; //確認用
 				Perr_nrm_eva[N] -= VI.Perr_nrm;
 				SwCnt[N] -= SwCntTable[vector[0]][vector[1]];
 				StepLevel[0]--;
@@ -467,12 +411,6 @@ void VectorSearch(){
 
 		i = i_temp[StepLevel[0]]; //関数から戻った時にその階層のfor文の場所を代入
 
-		/******探索数制限を超えていたらreturn******/
-		if(flag_OT == 1){
-			return;
-		}
-		/************************************/
-
 		END: //枝切時とゴール後の再起呼び出しスキップ場所
 
 		Vout.ab[0] = Inv_param.vout[i].ab[0];
@@ -495,53 +433,6 @@ void VectorSearch(){
 }
 
 
-void VectorVoltage(int i, double V_dc, double *Vest_a, double *Vest_b){
-	if(i == 0){u = 0; v = 0; w = 0;}
-	if(i == 1){u = 1; v = 0; w = 0;}
-	if(i == 2){u = 1; v = 1; w = 0;}
-	if(i == 3){u = 0; v = 1; w = 0;}
-	if(i == 4){u = 0; v = 1; w = 1;}
-	if(i == 5){u = 0; v = 0; w = 1;}
-	if(i == 6){u = 1; v = 0; w = 1;}
-	if(i == 7){u = 1; v = 1; w = 1;}
-	//電圧ベクトル計算
-	Vu_inv = V_DC*1*u;
-	Vv_inv = V_DC*1*v;
-	Vw_inv = V_DC*1*w;
-	Vwu = Vw_inv-Vu_inv;
-	Vuv = Vu_inv-Vv_inv;
-	Vvw = Vv_inv-Vw_inv;
-	Vu = -(Vwu-Vuv)/3;
-	Vv = -(Vuv-Vvw)/3;
-	Vw = -(Vvw-Vwu)/3;
-	*Vest_a = (double)(sqrt(2.0/3.0)*(Vu - 0.5*Vv - 0.5*Vw));
-	*Vest_b = (double)(sqrt(2.0/3.0)*sqrt(3)/2.0*(Vv-Vw));
-
-	return;
-}
-
-void OutputVoltage(int out_swp, double V_dc, double *Vout_u, double *Vout_v, double *Vout_w){
-	if(out_swp == 0){u = 0, v = 0, w = 0;}
-	if(out_swp == 1){u = 1, v = 0, w = 0;}
-	if(out_swp == 2){u = 1, v = 1, w = 0;}
-	if(out_swp == 3){u = 0, v = 1, w = 0;}
-	if(out_swp == 4){u = 0, v = 1, w = 1;}
-	if(out_swp == 5){u = 0, v = 0, w = 1;}
-	if(out_swp == 6){u = 1, v = 0, w = 1;}
-	if(out_swp == 7){u = 1, v = 1, w = 1;}
-	//電圧ベクトル計算
-	Vu_inv = V_DC/1*u;
-	Vv_inv = V_DC/1*v;
-	Vw_inv = V_DC/1*w;
-	Vwu = Vw_inv-Vu_inv;
-	Vuv = Vu_inv-Vv_inv;
-	Vvw = Vv_inv-Vw_inv;
-	*Vout_u = -(Vwu-Vuv)/3;
-	*Vout_v = -(Vuv-Vvw)/3;
-	*Vout_w = -(Vvw-Vwu)/3;
-
-	return;
-}
 
 int PhaseCalc(int *sector, double Step_Level, int x, double omega_ref, double Ts, double *phase_int){
 	// double *phase_int;
