@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "asps.h": "c",
+        "inverter_function.h": "c",
+        "common.h": "c",
+        "parameterdefined.h": "c",
+        "math.h": "c",
+        "stdbool.h": "c",
+        "time.h": "c"
+    }
+}
