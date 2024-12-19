@@ -3,6 +3,8 @@
         "inverter_function.h": "c",
         "parameterdefined.h": "c",
         "common.h": "c",
-        "*.tcc": "c"
+        "*.tcc": "c",
+        "stdbool.h": "c",
+        "stdint.h": "c"
     }
 }

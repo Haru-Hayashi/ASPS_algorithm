@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "ParameterDefined.h"
-
+#include "Common.h"
 
 // *** macro definition *** //
 
@@ -54,6 +54,7 @@ typedef struct{
     float Pref_b[100000];
     float Perr_nrm;
     float Perr_sum;
+    float Perr_sum_min;
     float theta_out;
     float theta_ref;
     Vector_parameter Pout;
@@ -72,6 +73,17 @@ static bool SwitchingState[8][3] = {
     {1, 1, 1}
 };
 
+static uint8_t SwCntTable[8][8] = {
+	{0,1,2,1,2,1,2,3},
+	{1,0,1,2,3,2,1,2},
+	{2,1,0,1,2,3,2,1},
+	{1,2,1,0,1,2,3,2},
+	{2,3,2,1,0,1,2,1},
+	{1,2,3,2,1,0,1,2},
+	{2,1,2,3,2,1,0,1},
+	{3,2,1,2,1,2,1,0}
+};
+
 
 // *** prototype definition *** //
 // 座標変換
@@ -81,5 +93,6 @@ void dq2ab(float d, float q, float theta, float* a, float*b);
 void ab2uvw( float a, float b, float* u, float* v, float* w);
 //　関数
 bool Inv_UpdateOutputVoltage(Inverter_parameter* ip);
+bool AdjoinVector(double Step, int VV, double omega_ref, double Ts);
 
 #endif

@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <time.h>
 
-#include "ASPS.h"
+#include "ASPS_DSS.h"
 #include "lib/Common.h"
 #include "lib/ParameterDefined.h"
 #include "lib/Inverter_function.h"
@@ -11,8 +11,8 @@
 Vector_parameter Vout;
 Vector_parameter Vref;
 Integral_model VI_data;
-Integral_model VI;
 Inverter_parameter Inv_param;
+ASPS_DFS dfs;
 
 int f_ref;
 double omega_ref;
@@ -30,29 +30,15 @@ double Mod;
 int DFS_Loop;
 int DFS_MAX;
 int Step_MAX;
-int n;
-int N;
-int N_act;
-long long Pattern_Count;
-int tree[100][10000];
-int SwCnt[100];
-int vector[3];
 int Vector_tmp;
 int vector0_tmp[2];
-int StepLevel[2] = {0,0};
 volatile double Boundary = 0.0;
 double SwFreq;
 double t;
-int SwCnt_min;
-int SwCnt_min_total;
-int sector;
-int renew;
-int renew_max;
+int SwCnt_total;
+long long Pattern_Update;
 
-double Perr_nrm_eva[2];
-double Perr_nrm_eva_min;
-double Perr_nrm_eva_limit;
-double Perr_nrm_MAX;
+double Perr_sum_limit;
 double Perr_nrm_tmp[100];
 double Pref_nrm;
 double Pout_nrm;
@@ -62,15 +48,13 @@ int flag_Pa_zero;
 int threshold;
 long long search_num_MAX;
 double phase_int;
-double StepLevel_cont;
+double Total_Step;
 int DFS_MAX_SUM;
 int SwCnt_limit;
 double Kvf;
-int Flag_DFS_MAX;
-
 double W;
 
-int i_temp[1000];
+int VV_node_tmp[1000];
 
 clock_t start_clock, end_clock;
 clock_t start_clock2, end_clock2;
@@ -81,20 +65,6 @@ int Count_enc;
 int Loop_Time;
 long long Node_Counter;
 ///////////////////
-
-int SwCntTable[8][8] = 
-{
-	{0,1,2,1,2,1,2,3},
-	{1,0,1,2,3,2,1,2},
-	{2,1,0,1,2,3,2,1},
-	{1,2,1,0,1,2,3,2},
-	{2,3,2,1,0,1,2,1},
-	{1,2,3,2,1,0,1,2},
-	{2,1,2,3,2,1,0,1},
-	{3,2,1,2,1,2,1,0}
-};
-
-
 
 int main(void){
 	// ファイルの保存先フォルダとファイル名を指定
@@ -127,8 +97,8 @@ int main(void){
 	// ********** 許容値の設定 ********** //
 	Boundary = 12.0e-3;       // 境界幅 (境界付きで探索するときに使用)
 	SwCnt_limit = 5;          // スイッチング回数の上限値
-	SwCnt_min = SwCnt_limit;  // 現在のスイッチング回数の最小値
-	Perr_nrm_eva_limit = 0.6; // DSSの上限値
+	dfs.SwCnt_min = SwCnt_limit;  // 現在のスイッチング回数の最小値
+	Perr_sum_limit = 0.7; // DSSの上限値
 
 	Kvf = V_DC*1/sqrt(2)/360;
 	Vref_nrm = Kvf*omega_ref;
@@ -156,16 +126,15 @@ int main(void){
 
 		loop:
 		Node_Counter = 0;
-		VectorSearch();
+		DFSbasedASPS();
 		
 		DFS_MAX_SUM += DFS_MAX;
-		N = N_act;
 
 		// VV_sequenceからVIを計算してデータを保存
 		for(j = 1; j <= DFS_MAX; ++j){
-			Vout.ab[0] = Inv_param.vout[tree[j][N]].ab[0];
-			Vout.ab[1] = Inv_param.vout[tree[j][N]].ab[1];
-			Vector[0] = tree[j][N];
+			Vout.ab[0] = Inv_param.vout[dfs.VV_seq_record[j]].ab[0];
+			Vout.ab[1] = Inv_param.vout[dfs.VV_seq_record[j]].ab[1];
+			Vector[0] = dfs.VV_seq_record[j];
 
 			/******************最終値と初期値をつなげる処理******************/
 			//ベクトル6を打ち続ける処理
@@ -174,7 +143,7 @@ int main(void){
 				Vout.ab[1] = Inv_param.vout[6].ab[1];
 				Vector[0] = 6;
 				if(Vector[1] != Vector[0] && flag_zero != 1 && flag_zero != 2){
-					SwCnt_min_total++;
+					SwCnt_total++;
 				}
 			}
 			//出力値が初期値に戻ったら零ベクトルを打ち続けるフラグ
@@ -188,7 +157,7 @@ int main(void){
 				Vout.ab[1] = Inv_param.vout[1].ab[1];
 				// Vector[0] = 1;
 				if(Vector[1] != Vector[0]){
-					SwCnt_min_total++;
+					SwCnt_total++;
 				}
 			//}
 			//零ベクトルを打ち続ける
@@ -197,7 +166,7 @@ int main(void){
 				Vout.ab[1] = Inv_param.vout[0].ab[1];
 				Vector[0] = 0;
 				if(Vector[1] != Vector[0]){
-					SwCnt_min_total++;
+					SwCnt_total++;
 				}
 			}
 			/***************************************************************/
@@ -242,264 +211,182 @@ int main(void){
 			fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j*Mul_Reso-Mul_Reso], VI_data.Pref_b[j*Mul_Reso-Mul_Reso], Boundary, VI_data.Perr_nrm, Pout_nrm, Kvf+Boundary, Kvf-Boundary, Pref_nrm, VI_data.theta_ref, Vector[0]);
 		}
 
-		VI.Pout.ab[0] = VI_data.Pout.ab[0];
-		VI.Pout.ab[1] = VI_data.Pout.ab[1];
+		dfs.VI.Pout.ab[0] = VI_data.Pout.ab[0];
+		dfs.VI.Pout.ab[1] = VI_data.Pout.ab[1];
 
-		vector[0] = tree[DFS_MAX][N];
-		Vector_tmp = tree[DFS_MAX-1][N];
-		vector0_tmp[0] = tree[DFS_MAX][N];
-		vector0_tmp[1] = tree[DFS_MAX-1][N];
+		dfs.VV_Num[0] = dfs.VV_seq_record[DFS_MAX];
+		Vector_tmp = dfs.VV_seq_record[DFS_MAX-1];
+		vector0_tmp[0] = dfs.VV_seq_record[DFS_MAX];
+		vector0_tmp[1] = dfs.VV_seq_record[DFS_MAX-1];
 		 
 
-		for(j = 0; j < 2; ++j){
-			SwCnt[j] = 0;
-			Perr_nrm_eva[j] = 0;
-		}
+		dfs.SwCnt = 0;
+		dfs.VI.Perr_sum = 0;
+
 		for(j = 0; j <= DFS_MAX; ++j){
-			for(i = 0; i < 2; ++i){
-				tree[j][i] = 0;
-			}
+			dfs.VV_seq[j] = 0;
+			dfs.VV_seq_record[j] = 0;
 		}
 
 		end_clock = clock();
-		// printf("Loop_TIme=%d, Switching_min=%d\n",Loop_Time, SwCnt_min);
+		// printf("Loop_TIme=%d, Switching_min=%d\n",Loop_Time, dfs.SwCnt_min);
 		printf("Loop_TIme/Loop_MAX=%d/%d, Clock_Time=%f\n",Loop_Time, DFS_Loop, (double)(end_clock-start_clock)/CLOCKS_PER_SEC);
 		printf("Search_Number=%d, DFS_MAX=%d\n",Node_Counter, DFS_MAX);
 		// fprintf(fps[2], "%d, %d, %d, %f\n", Loop_Time, Node_Counter, DFS_MAX, (double)(end_clock-start_clock)/CLOCKS_PER_SEC);
 		Node_Counter = 0;
 
-		SwCnt_min_total += SwCnt_min;
-		SwCnt_min = SwCnt_limit;
+		SwCnt_total += dfs.SwCnt_min;
+		dfs.SwCnt_min = SwCnt_limit;
 
-		StepLevel[0] = 0;
+		dfs.Layer = 0;
 
-		tree[0][0] = vector[0]; 
-		tree[0][1] = vector[0]; 
+		dfs.VV_seq[0] = dfs.VV_Num[0]; 
+		dfs.VV_seq[1] = dfs.VV_Num[0]; 
 
 	}
 	stop:
 
+	SwFreq = (SwCnt_total/3)/(Step_MAX*Ts);
+
 	end_clock2 = clock();
-///////////////////////////////////////////////////////////
-		
-	SwFreq = (SwCnt_min_total/3)/(DFS_MAX*DFS_Loop*Ts);
 
 	printf("DFS_MAX=%d\n", DFS_MAX);
 	printf("DFS_Loop=%d\n", DFS_Loop);
 	printf("Step_Max=%d\n", Step_MAX);
 	printf("Ts[us]=%f\n", Ts*1e6);
-	printf("Boundary=%f\n", Boundary);
-    printf("f_ref=%d\n", f_ref);
-	printf("flag_zero=%d\n", flag_Pa_zero);
-	printf("Minimum SwCnt=%d\n", SwCnt_min_total);
-	printf("Minimum SwFreq=%f\n", SwFreq);
-	printf("SwCnt_renew=%d\n", renew);
-	printf("How many patterns=%d\n", Pattern_Count);
-	printf("CPU_clock=%f\n", (double)(end_clock2-start_clock2)/CLOCKS_PER_SEC);
-	printf("Perr_nrm_limit=%f\n", Perr_nrm_eva_limit);
+	// printf("Boundary=%f\n", Boundary);
+    printf("f_ref=%d Hz\n", f_ref);
+	printf("Switching times=%d\n", SwCnt_total);
+	printf("Switching frequency=%f\n", SwFreq);
+	printf("Pattern update times=%d\n", Pattern_Update);
+	printf("Perr_nrm_limit=%f\n", Perr_sum_limit);
 	printf("Perr_nrm_total=%f\n", Perr_nrm_total);
+	printf("CPU computation time=%f\n", (double)(end_clock2-start_clock2)/CLOCKS_PER_SEC);
 
     for(i = 0; i < FileNum; i++){
 		// ファイルを閉じる
         fclose(fps[i]);
 	}
-	
 }
 
-void VectorSearch(){
 
-	for(i = 0; i < VV_NUM; ++i){
+// ********************************************************************** //
+// ************************* DFSによるASPSの処理 ************************* //
+// ********************************************************************** //
+void DFSbasedASPS(){
+	uint8_t VV_node;
+
+	// VVノード0～6を探索
+	for(VV_node = 0; VV_node < VV_NUM; ++VV_node){
 
 		// i番目の電圧ベクトルノードを参照して出力VIを計算
-		Vout.ab[0] = Inv_param.vout[i].ab[0];
-		Vout.ab[1] = Inv_param.vout[i].ab[1];
-		VI.Pout.ab[0] += Ts*Vout.ab[0];
-		VI.Pout.ab[1] += Ts*Vout.ab[1];
-		// 現在のレイヤー(StepLevel)の指令VIを参照してVI誤差を計算
-		VI.Perr.ab[0] = VI.Pout.ab[0] - VI_data.Pref_a[StepLevel[0]*Mul_Reso];
-		VI.Perr.ab[1] = VI.Pout.ab[1] - VI_data.Pref_b[StepLevel[0]*Mul_Reso];
+		Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
+		Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
+		dfs.VI.Pout.ab[0] += Ts*Vout.ab[0];
+		dfs.VI.Pout.ab[1] += Ts*Vout.ab[1];
+		// 現在のレイヤーの指令VIを参照してVI誤差を計算
+		dfs.VI.Perr.ab[0] = dfs.VI.Pout.ab[0] - VI_data.Pref_a[dfs.Layer*Mul_Reso];
+		dfs.VI.Perr.ab[1] = dfs.VI.Pout.ab[1] - VI_data.Pref_b[dfs.Layer*Mul_Reso];
 		// VI誤差ノルムを計算
-		VI.Perr_nrm = sqrt(VI.Perr.ab[0]*VI.Perr.ab[0]+VI.Perr.ab[1]*VI.Perr.ab[1]);
+		dfs.VI.Perr_nrm = sqrt(dfs.VI.Perr.ab[0]*dfs.VI.Perr.ab[0]+dfs.VI.Perr.ab[1]*dfs.VI.Perr.ab[1]);
 
-		//探索ベクトル制限(非零ベクトル2,零ベクトル2,合計4本)
-		StepLevel_cont = StepLevel[0]+DFS_MAX_SUM;
-		if(PhaseCalc(&sector, StepLevel_cont, i, omega_ref, Ts, &phase_int) == 1){
-			goto END;
+		// 探索を隣接ベクトルに限定
+		Total_Step = dfs.Layer+DFS_MAX_SUM;
+		if(AdjoinVector(Total_Step, VV_node, omega_ref, Ts)){
+			goto NonRecursive;
 		}
-	
-		//許容値に入っているか比較する。入ってなければfor文がまわる
-		// if(fabs(VI.Perr_nrm) < fabs(Boundary)){ 
-			i_temp[StepLevel[0]] = i;
-			vector[2] = vector[1];
-			vector[1] = vector[0];  //前回のベクトル番号を保存しておく
-			StepLevel[0]++;  //ステップ数を更新
-			vector[0] = i;  //格納するベクトル番号
-			if(vector[0] == 0 && SwCntTable[7][vector[1]] < SwCntTable[0][vector[1]]){
-				vector[0] = 7;
-			}
-			tree[StepLevel[0]][N] = vector[0];  //ベクトル番号格納
-			SwCnt[N] += SwCntTable[vector[0]][vector[1]];  //ベクトルパターンの合計スイッチング回数を更新
-	
-			//スイッチング回数による枝切り
-			if(SwCnt[N] > SwCnt_min){
-				SwCnt[N] -= SwCntTable[vector[0]][vector[1]];
-				StepLevel[0]--;
-				vector[0] = vector[1];
-				vector[1] = vector[2];
-				goto END;
-			}
 
-			Perr_nrm_eva[N] += VI.Perr_nrm; //スイッチングの枝切りがなければ評価エラー加算
-			Perr_nrm_tmp[StepLevel[0]] = VI.Perr_nrm; 
+		VV_node_tmp[dfs.Layer] = VV_node;  // レイヤごとのノード探索状況を保存
+		dfs.Layer++;   				       // レイヤを更新
+		dfs.VV_Num[2] = dfs.VV_Num[1];     // 前々回のベクトル番号として保存
+		dfs.VV_Num[1] = dfs.VV_Num[0];     // 前回のベクトル番号として保存
+		dfs.VV_Num[0] = VV_node;           // 現在のVV番号を更新
 
-			//電圧積分誤差による枝切り
-			if(Perr_nrm_eva[N] > Perr_nrm_eva_limit){
-				Perr_nrm_eva[N] -= VI.Perr_nrm;
-				SwCnt[N] -= SwCntTable[vector[0]][vector[1]];
-				StepLevel[0]--;
-				vector[0] = vector[1];
-				vector[1] = vector[2];
-				goto END;
-			}
+		// ZVVの時の処理 (VV : 0 or 7を判定)
+		if(dfs.VV_Num[0] == 0 && SwCntTable[7][dfs.VV_Num[1]] < SwCntTable[0][dfs.VV_Num[1]]){
+			dfs.VV_Num[0] = 7;
+		}
+		dfs.VV_seq[dfs.Layer] = dfs.VV_Num[0];  		        // ベクトル番号格納
+		dfs.SwCnt += SwCntTable[dfs.VV_Num[0]][dfs.VV_Num[1]];  // スイッチング回数を更新
 
-			// Perr_nrm_tmp[StepLevel[0]] = VI.Perr_nrm; 
+		// スイッチング回数による枝刈(現在の最小値より大きければ枝刈)
+		if(dfs.SwCnt > dfs.SwCnt_min){
+			dfs.SwCnt -= SwCntTable[dfs.VV_Num[0]][dfs.VV_Num[1]]; // スイッチング回数を戻す
+			dfs.Layer--;										   // レイヤを戻す													
+			dfs.VV_Num[0] = dfs.VV_Num[1];						   
+			dfs.VV_Num[1] = dfs.VV_Num[2];
+			goto NonRecursive;
+		}
 
-			/****************************任意のステップ数になった時の処理****************************/
-			if(StepLevel[0] == DFS_MAX){
-				Flag_DFS_MAX = 1;
-				//スイッチング回数の最小値が更新されたらベクトル保存
-				if(SwCnt[N] < SwCnt_min){
-					SwCnt_min = SwCnt[N]; //スイッチング回数の最小値を保存
-					Perr_nrm_eva_min = Perr_nrm_eva[N]; //トータルエラーの最小値として保存しておく(これを基準にする)
-					N_act = N;
-					N = !N;
-					SwCnt[N] = SwCnt[!N];
-					Perr_nrm_eva[N] = Perr_nrm_eva[!N];
-					for(j = 0; j <= DFS_MAX; ++j){
-						tree[j][N] = tree[j][!N];
-					}
-					renew++;                 
+		dfs.VI.Perr_sum += dfs.VI.Perr_nrm; 		 // VI誤差面積を更新
+		Perr_nrm_tmp[dfs.Layer] = dfs.VI.Perr_nrm;   // レイヤごとのVI誤差を保存しておく 
+
+		// 電圧積分誤差面積による枝刈(設定した許容値を超えれば枝刈)
+		if(dfs.VI.Perr_sum > Perr_sum_limit){
+			dfs.VI.Perr_sum -= dfs.VI.Perr_nrm;					   // 誤差面積を戻す
+			dfs.SwCnt -= SwCntTable[dfs.VV_Num[0]][dfs.VV_Num[1]]; // スイッチング回数を戻す		
+			dfs.Layer--;										   // レイヤを戻す	
+			dfs.VV_Num[0] = dfs.VV_Num[1];
+			dfs.VV_Num[1] = dfs.VV_Num[2];
+			goto NonRecursive;
+		}
+
+		// ****************** 最終レイヤに到達したときの処理 ****************** //
+		if(dfs.Layer == DFS_MAX){
+			// 最小スイッチング回数が更新されたとき
+			if(dfs.SwCnt < dfs.SwCnt_min){
+				dfs.SwCnt_min = dfs.SwCnt; 			      // スイッチング回数の最小値を保存
+				dfs.VI.Perr_sum_min = dfs.VI.Perr_sum;    // 誤差面積の最小値を更新(これを基準に判定)
+				for(j = 0; j <= DFS_MAX; ++j){
+					dfs.VV_seq_record[j] = dfs.VV_seq[j]; // VVシーケンスの保存
 				}
-
-				//スイッチング回数が最小値と同じだったら,トータルエラーが最小のものを選ぶ
-				/***************************************************************************/
-				if(SwCnt[N] == SwCnt_min && Perr_nrm_eva[N] < Perr_nrm_eva_min){
-					N_act = N;
-					N = !N;
-					SwCnt[N] = SwCnt[!N];
-					Perr_nrm_eva[N] = Perr_nrm_eva[!N];
-					for(j = 0; j <= DFS_MAX; ++j){
-						tree[j][N] = tree[j][!N];
-					}
-					Perr_nrm_eva_min = Perr_nrm_eva[N]; //トータルエラーの最小値を保存
-				}
-				/***************************************************************************/
-				
-				SwCnt[N] -= SwCntTable[vector[0]][vector[1]]; //ひとつ前の階層に戻るのでスイッチングカウントをひとつ前に戻す
-				Perr_nrm_eva[N] -= VI.Perr_nrm; //エラーもひとつ前に戻す
-				Pattern_Count++; //ベクトルパターン数更新(確認用)
-				vector[0] = vector[1];
-				vector[1] = tree[StepLevel[0]-2][N];
-				StepLevel[0]--;
-				goto END;  //再起呼び出しをスキップ					
 			}
-			/****************************任意のステップ数になった時の処理終わり****************************/
 
-		/***********再帰呼び出し***********/
-		VectorSearch();
-		/*********************************/
+			// 最小スイッチング回数と同じ場合は誤差面積の大小で評価
+			if(dfs.SwCnt == dfs.SwCnt_min && dfs.VI.Perr_sum < dfs.VI.Perr_sum_min){
+				for(j = 0; j <= DFS_MAX; ++j){
+					dfs.VV_seq_record[j] = dfs.VV_seq[j];  // VVシーケンスの保存
+				}
+				dfs.VI.Perr_sum_min = dfs.VI.Perr_sum;     // 誤差面積の最小値を更新
+			}
+			dfs.SwCnt -= SwCntTable[dfs.VV_Num[0]][dfs.VV_Num[1]];  // スイッチング回数を戻す
+			dfs.VI.Perr_sum -= dfs.VI.Perr_nrm; 					// 誤差面積を戻す
+			Pattern_Update++; 										// 更新回数記録
+			dfs.VV_Num[0] = dfs.VV_Num[1];
+			dfs.VV_Num[1] = dfs.VV_seq[dfs.Layer-2];
+			dfs.Layer--;											// レイヤを戻す
+			goto NonRecursive;  			
+		}
 
-		i = i_temp[StepLevel[0]]; //関数から戻った時にその階層のfor文の場所を代入
+		// ** 再帰呼び出し ** //
+		DFSbasedASPS();
 
-		END: //枝切時とゴール後の再起呼び出しスキップ場所
+		VV_node = VV_node_tmp[dfs.Layer]; // バックトラックした後のレイヤのノードを代入
 
-		Vout.ab[0] = Inv_param.vout[i].ab[0];
-		Vout.ab[1] = Inv_param.vout[i].ab[1];
-		VI.Pout.ab[0] -= Ts*Vout.ab[0];  //前回の積分値に戻る
-		VI.Pout.ab[1] -= Ts*Vout.ab[1];	//同上
+		NonRecursive: // 枝刈と最終レイヤの再起呼び出しスキップ場所
+
+		// 前回の積分値に戻す
+		Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
+		Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
+		dfs.VI.Pout.ab[0] -= Ts*Vout.ab[0];  
+		dfs.VI.Pout.ab[1] -= Ts*Vout.ab[1];
 	}	
-	/* -----for文がすべて回った場合の処理---- */
-	SwCnt[N] -= SwCntTable[vector[1]][vector[0]];
-	Perr_nrm_eva[N] -= Perr_nrm_tmp[StepLevel[0]]; //進んだ先に見つからなかったので戻る
-	vector[0] = vector[1];
-	if(StepLevel[0]-2 < 0){
-		vector[1] = Vector_tmp;
+
+	// **** レイヤの全ノードが処理済み(for文を完了) **** // 
+	dfs.SwCnt -= SwCntTable[dfs.VV_Num[1]][dfs.VV_Num[0]];  // スイッチング回数を戻す
+	dfs.VI.Perr_sum -= Perr_nrm_tmp[dfs.Layer]; 			// 誤差面積を戻す 
+	dfs.VV_Num[0] = dfs.VV_Num[1];
+	if(dfs.Layer-2 < 0){
+		dfs.VV_Num[1] = Vector_tmp;
 	}else{
-		vector[1] = tree[StepLevel[0]-2][N];
+		dfs.VV_Num[1] = dfs.VV_seq[dfs.Layer-2];
 	}
-	StepLevel[0]--;  //ステップ数更新
+	dfs.Layer--;  // レイヤを戻す
 
 	return;	
 }
 
 
 
-int PhaseCalc(int *sector, double Step_Level, int x, double omega_ref, double Ts, double *phase_int){
-	// double *phase_int;
-	// *phase = atan2(B,A);
-	// *phase_int = *phase - pi/2;
-	// *phase_int = theta - pi/2;
-	// *phase_int = *phase;
 
-	*phase_int = omega_ref*Ts*Step_Level - pi*0.5;
-
-	if(*phase_int > pi){
-		*phase_int -= 2*pi;
-	}
-
-    if((*phase_int >= -pi/6) && (*phase_int < pi/6))
-    {
-        *sector = 1; 
-		if(!((x ==2) || (x ==3) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		}   
-			return 0;
-    }
-    else if((*phase_int >= pi/6) && (*phase_int < pi/2))
-    {
-        *sector = 2;
-		if(!((x ==3) || (x ==4) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		} 
-			return 0;
-    }
-    else if((*phase_int >= pi/2) && (*phase_int < pi*5/6))
-    {
-        *sector = 3;
-		if(!((x ==4) || (x ==5) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		} 
-			return 0;
-    }
-    else if((pi >= *phase_int && *phase_int >= pi*5/6) || (-pi <= *phase_int && *phase_int < -pi*5/6))
-    {
-        *sector = 4;
-		if(!((x ==5) || (x ==6) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		} 
-			return 0;
-    }
-    else if((*phase_int >= -pi*5/6) && (*phase_int < -pi/2))
-    {
-        *sector = 5;
-		if(!((x ==6) || (x ==1) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		} 
-			return 0;
-    }
-    else if((*phase_int >= -pi/2) && (*phase_int < -pi/6))
-    {
-        *sector = 6;
-		if(!((x ==1) || (x ==2) || (x ==0))){
-			// *jump = 1;
-			return 1;
-		} 
-			return 0;
-    }
-}
 

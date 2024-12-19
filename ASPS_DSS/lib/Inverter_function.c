@@ -1,9 +1,9 @@
 #include "Inverter_function.h"
 
 /**
- * @brief Initialize VCT_tVect3State
+ * @brief 3相ベクトル変数の初期化
  * 
- * @param vs3 pointer of VCT_tVect3State
+ * @param vs3 3相ベクトル変数のポインタ
  */
 void InitVect3(Vector_parameter* vs3){
     int i;
@@ -18,10 +18,10 @@ void InitVect3(Vector_parameter* vs3){
 }
 
 /**
- * @brief Initialize the parameter of an inverter
+ * @brief インバータ変数の初期化
  * 
- * @param ip initialized object
- * @param Vdc [V] DC link voltage
+ * @param ip オブジェクト
+ * @param Vdc DCリンク電圧
  */
 bool Inv_UpdateOutputVoltage(Inverter_parameter* ip){
     int i_vv; int j_axis;
@@ -47,6 +47,43 @@ bool Inv_UpdateOutputVoltage(Inverter_parameter* ip){
     return 0;
 }
 
+/**
+ * @brief 隣接ベクトルの判定
+ * 
+ * @param Step レイヤ
+ * @param VV         電圧ベクトル番号
+ * @param omega_ref  角周波数指令
+ * @param Ts         演算周期
+ */
+bool AdjoinVector(double Step, int VV, double omega_ref, double Ts){
+    float theta;
+    
+	theta = omega_ref*Ts*Step - pi*0.5;
+	if(theta > pi){
+		theta -= 2*pi;
+	}
+
+    if((theta >= -PI16) && (theta < PI16)){
+		return(!((VV ==2) || (VV ==3) || (VV ==0))) ? 1 :0;
+    }
+    else if((theta >= PI16) && (theta < PI12)){
+		return(!((VV ==3) || (VV ==4) || (VV ==0))) ? 1 :0;
+    }
+    else if((theta >= PI12) && (theta < PI56)){
+		return(!((VV ==4) || (VV ==5) || (VV ==0))) ? 1 :0;
+    }
+    else if((pi >= theta && theta >= PI56) || (-pi <= theta && theta < -PI56)){
+		return(!((VV ==5) || (VV ==6) || (VV ==0))) ? 1 :0;
+    }
+    else if((theta >= -PI56) && (theta < -PI12)){
+		return(!((VV ==6) || (VV ==1) || (VV ==0))) ? 1 :0;
+    }
+    else if((theta >= -PI12) && (theta < -PI16)){
+		return(!((VV ==1) || (VV ==2) || (VV ==0))) ? 1 :0;
+    }
+}
+
+// **************** 座標変換の関数 **************** // 
 void uvw2ab(float u, float v, float w, float* a, float*b){
     *a = (float)(sqrt(2.0/3.0)*(u - 0.5*v - 0.5*w));
     *b = (float)(sqrt(2.0/3.0)*sqrt(3)/2.0*(v-w));
