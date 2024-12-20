@@ -8,8 +8,6 @@
 #include "lib/Inverter_function.h"
 
 // オブジェクト
-Vector_parameter Vout;
-Vector_parameter Vref;
 Integral_model VI_data;
 Inverter_parameter Inv_param;
 ASPS_DFS dfs;
@@ -19,7 +17,7 @@ double omega_ref;
 double Ts = 10e-6;
 
 int i, j, k;
-double t;
+double time_data;
 
 // インバータモデル
 float Pref_a_tmp, Pref_b_tmp;
@@ -34,7 +32,7 @@ int Vector_tmp;
 int vector0_tmp[2];
 volatile double Boundary = 0.0;
 double SwFreq;
-double t;
+double time_data;
 int SwCnt_total;
 long long Pattern_Update;
 
@@ -56,11 +54,11 @@ double W;
 
 int VV_node_tmp[1000];
 
+double Timer_clock[2];
 clock_t start_clock, end_clock;
 clock_t start_clock2, end_clock2;
 
 /*確認用変数*/////////
-int Vector[3];
 int Count_enc;
 int Loop_Time;
 long long Node_Counter;
@@ -130,96 +128,94 @@ int main(void){
 		
 		DFS_MAX_SUM += DFS_MAX;
 
-		// VV_sequenceからVIを計算してデータを保存
+		// VV_sequenceからVIを計算してデータファイルに保存
 		for(j = 1; j <= DFS_MAX; ++j){
-			Vout.ab[0] = Inv_param.vout[dfs.VV_seq_record[j]].ab[0];
-			Vout.ab[1] = Inv_param.vout[dfs.VV_seq_record[j]].ab[1];
-			Vector[0] = dfs.VV_seq_record[j];
+			VI_data.Vout.ab[0] = Inv_param.vout[dfs.VV_seq_record[j]].ab[0];
+			VI_data.Vout.ab[1] = Inv_param.vout[dfs.VV_seq_record[j]].ab[1];
+			VI_data.VV_Num[0] = dfs.VV_seq_record[j];
 
 			/******************最終値と初期値をつなげる処理******************/
-			//ベクトル6を打ち続ける処理
+			// ベクトル6を打ち続ける処理
 			if(VI_data.theta_ref > 5.8 && VI_data.Pout.ab[1] < 1.5e-2){
-				Vout.ab[0] = Inv_param.vout[6].ab[0];
-				Vout.ab[1] = Inv_param.vout[6].ab[1];
-				Vector[0] = 6;
-				if(Vector[1] != Vector[0] && flag_zero != 1 && flag_zero != 2){
+				VI_data.Vout.ab[0] = Inv_param.vout[6].ab[0];
+				VI_data.Vout.ab[1] = Inv_param.vout[6].ab[1];
+				VI_data.VV_Num[0] = 6;
+				if(VI_data.VV_Num[1] != VI_data.VV_Num[0] && flag_zero != 1 && flag_zero != 2){
 					SwCnt_total++;
 				}
 			}
-			//出力値が初期値に戻ったら零ベクトルを打ち続けるフラグ
+			// 出力値が初期値に戻ったら零ベクトルを打ち続けるフラグ
 			if(VI_data.theta_ref > 5.8 && fabs(VI_data.Pout.ab[0]) < 1.0e-6){
 				//Count_enc = 1;
 				flag_zero = 2;
 			}
-			//ベクトル1を打ち続ける処理
+			// ベクトル1を打ち続ける処理
 			if(flag_zero == 1){
-				Vout.ab[0] = Inv_param.vout[1].ab[0];
-				Vout.ab[1] = Inv_param.vout[1].ab[1];
-				// Vector[0] = 1;
-				if(Vector[1] != Vector[0]){
+				VI_data.Vout.ab[0] = Inv_param.vout[1].ab[0];
+				VI_data.Vout.ab[1] = Inv_param.vout[1].ab[1];
+				// VI_data.VV_Num[0] = 1;
+				if(VI_data.VV_Num[1] != VI_data.VV_Num[0]){
 					SwCnt_total++;
 				}
 			//}
-			//零ベクトルを打ち続ける
+			// 零ベクトルを打ち続ける
 			}else if(flag_zero == 2){
-				Vout.ab[0] = Inv_param.vout[0].ab[0];
-				Vout.ab[1] = Inv_param.vout[0].ab[1];
-				Vector[0] = 0;
-				if(Vector[1] != Vector[0]){
+				VI_data.Vout.ab[0] = Inv_param.vout[0].ab[0];
+				VI_data.Vout.ab[1] = Inv_param.vout[0].ab[1];
+				VI_data.VV_Num[0] = 0;
+				if(VI_data.VV_Num[1] != VI_data.VV_Num[0]){
 					SwCnt_total++;
 				}
 			}
 			/***************************************************************/
 
-			VI_data.Pout.ab[0] += Vout.ab[0]*Ts;
-			VI_data.Pout.ab[1] += Vout.ab[1]*Ts;
+			VI_data.Pout.ab[0] += VI_data.Vout.ab[0]*Ts;
+			VI_data.Pout.ab[1] += VI_data.Vout.ab[1]*Ts;
 
 			/******************最終地と初期値をつなげる処理******************/
-			//ベクトル6を打ち続けてα軸にあたるときのフラグ
-			if(VI_data.theta_ref > 5.8 && Vector[0] == 6 && fabs(VI_data.Pout.ab[1]) < 1.0e-6){
+			// ベクトル6を打ち続けてα軸にあたるときのフラグ
+			if(VI_data.theta_ref > 5.8 && VI_data.VV_Num[0] == 6 && fabs(VI_data.Pout.ab[1]) < 1.0e-6){
 				flag_zero = 1;
 			}
 			/**************************************************************/
 
+			// 電圧積分モデルの計算
 			VI_data.Perr.ab[0] = VI_data.Pout.ab[0] - VI_data.Pref_a[j*Mul_Reso-Mul_Reso];
 			VI_data.Perr.ab[1] = VI_data.Pout.ab[1] - VI_data.Pref_b[j*Mul_Reso-Mul_Reso];
 			VI_data.Perr_nrm = sqrt(VI_data.Perr.ab[0]*VI_data.Perr.ab[0]+VI_data.Perr.ab[1]*VI_data.Perr.ab[1]);
+			VI_data.Pout_nrm = sqrt(VI_data.Pout.ab[0]*VI_data.Pout.ab[0] + (VI_data.Pout.ab[1]-Kvf)*(VI_data.Pout.ab[1]-Kvf));
+			VI_data.Pref_nrm = sqrt(VI_data.Pref_a[j*Mul_Reso-Mul_Reso]*VI_data.Pref_a[j*Mul_Reso-Mul_Reso]+(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf)*(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf));
 			Perr_nrm_total += VI_data.Perr_nrm;
-			Pout_nrm = sqrt(VI_data.Pout.ab[0]*VI_data.Pout.ab[0] + (VI_data.Pout.ab[1]-Kvf)*(VI_data.Pout.ab[1]-Kvf));
-			Pref_nrm = sqrt(VI_data.Pref_a[j*Mul_Reso-Mul_Reso]*VI_data.Pref_a[j*Mul_Reso-Mul_Reso]+(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf)*(VI_data.Pref_b[j*Mul_Reso-Mul_Reso]-Kvf));
 
-			//ベクトル番号をエンコードして保存
-			if(Vector[0] != Vector[1]){
-				fprintf(fps[1], "%d, %d\n", Vector[1], Count_enc);
+			// VVシーケンスをVV番号と持続回数の情報にエンコードしてファイルに保存
+			if(VI_data.VV_Num[0] != VI_data.VV_Num[1]){
+				fprintf(fps[1], "%d, %d\n", VI_data.VV_Num[1], Count_enc);
 				Count_enc = 1;
 			}else {
 				Count_enc++;
 			}
-			Vector[1] = Vector[0];
+			VI_data.VV_Num[1] = VI_data.VV_Num[0];
 
-			// t = Ts*(j-1)+Ts*DFS_MAX*k;
-			t += Ts;
+			time_data += Ts;
 
 			//指令値が初期値にきたら終わる
 			if(VI_data.theta_ref > 5.8 && VI_data.Pref_a[j*Mul_Reso-Mul_Reso] > Vref_nrm*Ts){
 				Count_enc -= 1;
-				fprintf(fps[1], "%d, %d\n", Vector[1], Count_enc);
+				fprintf(fps[1], "%d, %d\n", VI_data.VV_Num[1], Count_enc);
 				Count_enc = 1;
 				goto stop;
 			}
-			// fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j-1], VI_data.Pref_b[j-1], Boundary, VI_data.Perr_nrm, Vtheta_tmp[j-1], Vector[0]);
-			fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d\n", t, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j*Mul_Reso-Mul_Reso], VI_data.Pref_b[j*Mul_Reso-Mul_Reso], Boundary, VI_data.Perr_nrm, Pout_nrm, Kvf+Boundary, Kvf-Boundary, Pref_nrm, VI_data.theta_ref, Vector[0]);
+			fprintf(fps[0], "%f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d\n", time_data, VI_data.Pout.ab[0], VI_data.Pout.ab[1], VI_data.Pref_a[j*Mul_Reso-Mul_Reso], VI_data.Pref_b[j*Mul_Reso-Mul_Reso], Boundary, VI_data.Perr_nrm, Pout_nrm, Kvf+Boundary, Kvf-Boundary, Pref_nrm, VI_data.theta_ref, VI_data.VV_Num[0]);
 		}
 
+		// 次のDFSで使用する変数の情報を渡す
 		dfs.VI.Pout.ab[0] = VI_data.Pout.ab[0];
 		dfs.VI.Pout.ab[1] = VI_data.Pout.ab[1];
-
 		dfs.VV_Num[0] = dfs.VV_seq_record[DFS_MAX];
 		Vector_tmp = dfs.VV_seq_record[DFS_MAX-1];
 		vector0_tmp[0] = dfs.VV_seq_record[DFS_MAX];
 		vector0_tmp[1] = dfs.VV_seq_record[DFS_MAX-1];
 		 
-
 		dfs.SwCnt = 0;
 		dfs.VI.Perr_sum = 0;
 
@@ -227,12 +223,7 @@ int main(void){
 			dfs.VV_seq[j] = 0;
 			dfs.VV_seq_record[j] = 0;
 		}
-
-		end_clock = clock();
-		// printf("Loop_TIme=%d, Switching_min=%d\n",Loop_Time, dfs.SwCnt_min);
-		printf("Loop_TIme/Loop_MAX=%d/%d, Clock_Time=%f\n",Loop_Time, DFS_Loop, (double)(end_clock-start_clock)/CLOCKS_PER_SEC);
-		printf("Search_Number=%d, DFS_MAX=%d\n",Node_Counter, DFS_MAX);
-		// fprintf(fps[2], "%d, %d, %d, %f\n", Loop_Time, Node_Counter, DFS_MAX, (double)(end_clock-start_clock)/CLOCKS_PER_SEC);
+	
 		Node_Counter = 0;
 
 		SwCnt_total += dfs.SwCnt_min;
@@ -243,25 +234,33 @@ int main(void){
 		dfs.VV_seq[0] = dfs.VV_Num[0]; 
 		dfs.VV_seq[1] = dfs.VV_Num[0]; 
 
+		// セクター毎にDFSの処理時間を計測して出力
+		end_clock = clock();
+		Timer_clock[0]=(double)(end_clock-start_clock)/CLOCKS_PER_SEC;
+		printf("Loop Time/Loop MAX : %d/%d, Clock_Time : %f\n",Loop_Time, DFS_Loop, Timer_clock[0]);
+		printf("Search Number : %d, DFS_MAX : %d\n\n",Node_Counter, DFS_MAX);
+
 	}
 	stop:
 
-	SwFreq = (SwCnt_total/3)/(Step_MAX*Ts);
+	SwFreq = (SwCnt_total/6)/(Step_MAX*Ts);
 
 	end_clock2 = clock();
+	Timer_clock[1]=(double)(end_clock2-start_clock2)/CLOCKS_PER_SEC;
 
-	printf("DFS_MAX=%d\n", DFS_MAX);
-	printf("DFS_Loop=%d\n", DFS_Loop);
-	printf("Step_Max=%d\n", Step_MAX);
-	printf("Ts[us]=%f\n", Ts*1e6);
-	// printf("Boundary=%f\n", Boundary);
-    printf("f_ref=%d Hz\n", f_ref);
-	printf("Switching times=%d\n", SwCnt_total);
-	printf("Switching frequency=%f\n", SwFreq);
-	printf("Pattern update times=%d\n", Pattern_Update);
-	printf("Perr_nrm_limit=%f\n", Perr_sum_limit);
-	printf("Perr_nrm_total=%f\n", Perr_nrm_total);
-	printf("CPU computation time=%f\n", (double)(end_clock2-start_clock2)/CLOCKS_PER_SEC);
+	printf("DFS Depth           : %d\n", DFS_MAX);
+	printf("DFS Loop Times      : %d\n", DFS_Loop);
+	printf("Total Steps         : %d\n", Step_MAX);
+	printf("Comp. cycle Ts      : %f us\n", Ts * 1e6);
+	// printf("Boundary           : %f\n", Boundary);
+	printf("Fund. Freq.         : %d Hz\n", f_ref);
+	printf("Switching times     : %d\n", SwCnt_total);
+	printf("Switching frequency : %f Hz\n", SwFreq);
+	printf("VI Norm Limit       : %f Vs\n", Perr_sum_limit);
+	printf("VI Error Area       : %f Vs\n", Perr_nrm_total);
+	printf("Pattern Update      : %d\n", Pattern_Update);
+	printf("CPU Comp. Time      : %f s\n", Timer_clock[1]);
+
 
     for(i = 0; i < FileNum; i++){
 		// ファイルを閉じる
@@ -280,10 +279,10 @@ void DFSbasedASPS(){
 	for(VV_node = 0; VV_node < VV_NUM; ++VV_node){
 
 		// i番目の電圧ベクトルノードを参照して出力VIを計算
-		Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
-		Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
-		dfs.VI.Pout.ab[0] += Ts*Vout.ab[0];
-		dfs.VI.Pout.ab[1] += Ts*Vout.ab[1];
+		dfs.VI.Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
+		dfs.VI.Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
+		dfs.VI.Pout.ab[0] += Ts*dfs.VI.Vout.ab[0];
+		dfs.VI.Pout.ab[1] += Ts*dfs.VI.Vout.ab[1];
 		// 現在のレイヤーの指令VIを参照してVI誤差を計算
 		dfs.VI.Perr.ab[0] = dfs.VI.Pout.ab[0] - VI_data.Pref_a[dfs.Layer*Mul_Reso];
 		dfs.VI.Perr.ab[1] = dfs.VI.Pout.ab[1] - VI_data.Pref_b[dfs.Layer*Mul_Reso];
@@ -366,10 +365,10 @@ void DFSbasedASPS(){
 		NonRecursive: // 枝刈と最終レイヤの再起呼び出しスキップ場所
 
 		// 前回の積分値に戻す
-		Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
-		Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
-		dfs.VI.Pout.ab[0] -= Ts*Vout.ab[0];  
-		dfs.VI.Pout.ab[1] -= Ts*Vout.ab[1];
+		dfs.VI.Vout.ab[0] = Inv_param.vout[VV_node].ab[0];
+		dfs.VI.Vout.ab[1] = Inv_param.vout[VV_node].ab[1];
+		dfs.VI.Pout.ab[0] -= Ts*dfs.VI.Vout.ab[0];  
+		dfs.VI.Pout.ab[1] -= Ts*dfs.VI.Vout.ab[1];
 	}	
 
 	// **** レイヤの全ノードが処理済み(for文を完了) **** // 
@@ -386,7 +385,9 @@ void DFSbasedASPS(){
 	return;	
 }
 
+bool InitDFS(){
 
+}
 
 
 

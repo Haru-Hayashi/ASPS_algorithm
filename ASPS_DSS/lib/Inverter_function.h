@@ -41,6 +41,7 @@ typedef struct{
 /**
  * @brief インバータ電圧積分モデル
  * 
+ * @param VV_Num[3]   電圧ベクトル番号 [0]:最新 [1]:前回 [2]:前々回 
  * @param Pref_ab     電圧積分指令  
  * @param Pout        電圧積分出力   
  * @param Perr        電圧積分誤差
@@ -50,13 +51,17 @@ typedef struct{
  * @param theta_ref   電圧積分指令位相
  */
 typedef struct{
+    uint8_t VV_Num[3];
     float Pref_a[100000];
     float Pref_b[100000];
+    float Pout_nrm;
+    float Pref_nrm;
     float Perr_nrm;
     float Perr_sum;
     float Perr_sum_min;
     float theta_out;
     float theta_ref;
+    Vector_parameter Vout;
     Vector_parameter Pout;
     Vector_parameter Perr;
 } Integral_model;
