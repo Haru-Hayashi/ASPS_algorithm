@@ -52,15 +52,15 @@ typedef struct{
  */
 typedef struct{
     uint8_t VV_Num[3];
-    double Pref_a[1000];
-    double Pref_b[1000];
+    double Pref_a[10000];
+    double Pref_b[10000];
     double Pout_nrm;
     double Pref_nrm;
     double Perr_nrm;
     double Perr_sum;
     double Perr_sum_min;
     double theta_out;
-    double theta_ref[1000];
+    double theta_ref[10000];
     Vector_parameter Vout;
     Vector_parameter Pout;
     Vector_parameter Perr;

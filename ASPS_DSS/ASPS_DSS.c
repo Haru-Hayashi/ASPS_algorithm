@@ -85,7 +85,7 @@ int main(void){
 
 	// ********* 許容値の設定 ********* //
 	Boundary = 12.0e-3;                      // 境界幅 (境界付きで探索するときに使用)
-	SwCnt_limit = 8;                         // スイッチング回数の上限値
+	SwCnt_limit = 5;                         // スイッチング回数の上限値
 	dfs.SwCnt_min = SwCnt_limit;             // 現在のスイッチング回数の最小値
 	Perr_sum_limit = 0.7;                    // 誤差面積の上限値
           
