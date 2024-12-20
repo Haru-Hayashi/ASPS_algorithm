@@ -18,7 +18,7 @@ void InitVect3(Vector_parameter* vs3){
 }
 
 /**
- * @brief インバータ変数の初期化
+ * @brief インバータの出力電圧を計算
  * 
  * @param ip オブジェクト
  * @param Vdc DCリンク電圧
@@ -56,7 +56,7 @@ bool Inv_UpdateOutputVoltage(Inverter_parameter* ip){
  * @param Ts         演算周期
  */
 bool AdjoinVector(double Step, int VV, double omega_ref, double Ts){
-    float theta;
+    double theta;
     
 	theta = omega_ref*Ts*Step - pi*0.5;
 	if(theta > pi){
@@ -83,28 +83,70 @@ bool AdjoinVector(double Step, int VV, double omega_ref, double Ts){
     }
 }
 
-// **************** 座標変換の関数 **************** // 
-void uvw2ab(float u, float v, float w, float* a, float*b){
-    *a = (float)(sqrt(2.0/3.0)*(u - 0.5*v - 0.5*w));
-    *b = (float)(sqrt(2.0/3.0)*sqrt(3)/2.0*(v-w));
+/**
+ * @brief 電圧積分ベクトルの最終値を(0,0)に調整する
+ * 
+ * @param VI       オブジェクトｒ
+ * @param Vector   オブジェクト
+ * @param SwCnt    スイッチング回数
+ */
+bool Endpoint_adjust(Integral_model* VI, Inverter_parameter* Vector, uint32_t* SwCnt, uint32_t Layer){
+
+    // VV=6を出力し続ける処理
+    if(VI->theta_ref[Layer] > pi && VI->Pout.ab[1] < 1.5e-2){
+        VI->Vout.ab[0] = Vector->vout[6].ab[0];
+        VI->Vout.ab[1] = Vector->vout[6].ab[1];
+        VI->VV_Num[0] = 6;
+        if(VI->VV_Num[1] != VI->VV_Num[0]){
+            *SwCnt++;
+        }
+    }
+
+    // VV=1を出力し続ける処理
+    if(VI->theta_ref[Layer] > pi && VI->VV_Num[0] == 6 && fabs(VI->Pout.ab[1]) < 1.0e-6){
+        VI->Vout.ab[0] = Vector->vout[1].ab[0];
+        VI->Vout.ab[1] = Vector->vout[1].ab[1];
+        VI->VV_Num[0] = 1;
+        if(VI->VV_Num[1] != VI->VV_Num[0]){
+            *SwCnt++;
+        }
+    }
+
+    // VV=0を出力し続ける処理
+    if(VI->theta_ref[Layer] > pi && fabs(VI->Pout.ab[0]) < 1.0e-6){
+        VI->Vout.ab[0] = Vector->vout[0].ab[0];
+        VI->Vout.ab[1] = Vector->vout[0].ab[1];
+        VI->VV_Num[0] = 0;
+        if(VI->VV_Num[1] != VI->VV_Num[0]){
+            *SwCnt++;
+        }
+    }
+
+    return 0;
 }
 
-void ab2dq(float a, float b, float theta, float* d, float* q){
-    float c = (float)cos(theta);
-    float s = (float)sin(theta);
+// **************** 座標変換の関数 **************** // 
+void uvw2ab(double u, double v, double w, double* a, double*b){
+    *a = (double)(sqrt(2.0/3.0)*(u - 0.5*v - 0.5*w));
+    *b = (double)(sqrt(2.0/3.0)*sqrt(3)/2.0*(v-w));
+}
+
+void ab2dq(double a, double b, double theta, double* d, double* q){
+    double c = (double)cos(theta);
+    double s = (double)sin(theta);
     *d = c*a + s*b;
     *q = -s*a + c*b;
 }
 
-void dq2ab(float d, float q, float theta, float* a, float*b){
-    float c = (float)cos(theta);
-    float s = (float)sin(theta);
+void dq2ab(double d, double q, double theta, double* a, double*b){
+    double c = (double)cos(theta);
+    double s = (double)sin(theta);
     *a = c*d - s*q;
     *b = s*d + c*q;
 }
 
-void ab2uvw( float a, float b, float* u, float* v, float* w){
-    *u = (float)(sqrt(2.0/3.0)*a);
-    *v = (float)(sqrt(2.0/3.0)*(-0.5*a + sqrt(3)/2.0*b));
-    *w = (float)(sqrt(2.0/3.0)*(-0.5*a - sqrt(3)/2.0*b));
+void ab2uvw( double a, double b, double* u, double* v, double* w){
+    *u = (double)(sqrt(2.0/3.0)*a);
+    *v = (double)(sqrt(2.0/3.0)*(-0.5*a + sqrt(3)/2.0*b));
+    *w = (double)(sqrt(2.0/3.0)*(-0.5*a - sqrt(3)/2.0*b));
 }

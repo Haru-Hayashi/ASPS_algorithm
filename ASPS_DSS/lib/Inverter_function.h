@@ -17,11 +17,11 @@
  * @brief 三相交流用の変数
  */
 typedef struct{
-    float uvw[3];
-    float ab[2];
-    float dq[2];
-    float nrm;   
-    float phase;
+    double uvw[3];
+    double ab[2];
+    double dq[2];
+    double nrm;   
+    double phase;
 } Vector_parameter;
 
 /**
@@ -33,7 +33,7 @@ typedef struct{
  * @param vout[8] [V]   ベクトル番号ごとの出力電圧
  */
 typedef struct{
-    float Vdc;
+    double Vdc;
     uint8_t out_swp;
     Vector_parameter vout[8];
 } Inverter_parameter;
@@ -52,15 +52,15 @@ typedef struct{
  */
 typedef struct{
     uint8_t VV_Num[3];
-    float Pref_a[100000];
-    float Pref_b[100000];
-    float Pout_nrm;
-    float Pref_nrm;
-    float Perr_nrm;
-    float Perr_sum;
-    float Perr_sum_min;
-    float theta_out;
-    float theta_ref;
+    double Pref_a[1000];
+    double Pref_b[1000];
+    double Pout_nrm;
+    double Pref_nrm;
+    double Perr_nrm;
+    double Perr_sum;
+    double Perr_sum_min;
+    double theta_out;
+    double theta_ref[1000];
     Vector_parameter Vout;
     Vector_parameter Pout;
     Vector_parameter Perr;
@@ -92,12 +92,13 @@ static uint8_t SwCntTable[8][8] = {
 
 // *** prototype definition *** //
 // 座標変換
-void uvw2ab(float u, float v, float w, float* a, float*b);
-void ab2dq(float a, float b, float theta, float* d, float* q);
-void dq2ab(float d, float q, float theta, float* a, float*b);
-void ab2uvw( float a, float b, float* u, float* v, float* w);
+void uvw2ab(double u, double v, double w, double* a, double*b);
+void ab2dq(double a, double b, double theta, double* d, double* q);
+void dq2ab(double d, double q, double theta, double* a, double*b);
+void ab2uvw( double a, double b, double* u, double* v, double* w);
 //　関数
 bool Inv_UpdateOutputVoltage(Inverter_parameter* ip);
 bool AdjoinVector(double Step, int VV, double omega_ref, double Ts);
+bool Endpoint_adjust(Integral_model* VI, Inverter_parameter* Vector, uint32_t* SwCnt, uint32_t Layer);
 
 #endif
