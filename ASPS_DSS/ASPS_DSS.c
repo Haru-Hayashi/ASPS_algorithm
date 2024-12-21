@@ -58,7 +58,8 @@ clock_t start_clock2, end_clock2;
 int main(void){
 	// ファイルの保存先フォルダとファイル名を指定
 	const char *folderPath = "D:\\Remoto\\ASPS_algorithm\\ASPS_DSS\\data\\";  // フォルダのパス
-	const char *fileNames[] = {"test.csv", "test2.csv", "test3.csv"};	
+	// const char *fileNames[] = {"dss03_Sw15.csv", "dss03_Sw15_Seq.csv", "test3.csv"};
+	const char *fileNames[] = {"test1.csv", "test2", "test3.csv"};		
 
 	// FILE * ポインタの配列を宣言
     FILE *fps[FileNum]; 
@@ -77,7 +78,7 @@ int main(void){
 	f_ref =omega_ref/(2*pi);			     // 周波数指令
 
 	// ******* 演算周期とDFSの設定 ******* //
-	Ts = 25e-6;  // 演算周期
+	Ts = 25e-6;  					         // 演算周期
 	Step_MAX = floor((double)1/f_ref/Ts);    // 1周期のステップ数
 	DFS_MAX = floor(pi/(6*omega_ref*Ts));    // 1周期のステップ数を12分割 
 	DFS_Loop = floor(Step_MAX/DFS_MAX) + 1;  // DFSを実行する回数
@@ -85,9 +86,9 @@ int main(void){
 
 	// ********* 許容値の設定 ********* //
 	Boundary = 12.0e-3;                      // 境界幅 (境界付きで探索するときに使用)
-	SwCnt_limit = 5;                         // スイッチング回数の上限値
+	SwCnt_limit = 15;                         // スイッチング回数の上限値
 	dfs.SwCnt_min = SwCnt_limit;             // 現在のスイッチング回数の最小値
-	Perr_sum_limit = 0.7;                    // 誤差面積の上限値
+	Perr_sum_limit = 0.3;                    // 誤差面積の上限値
           
 	VI_nrm = V_DC/sqrt(2)/360;               // 電圧積分ノルム(V/w[Vs/(rad/s)])
 	Vref_nrm = VI_nrm*omega_ref;			 // 電圧ノルム(V[V])
@@ -99,6 +100,26 @@ int main(void){
 	start_clock2 = clock();
 
 	// ********** DFSの基づくASPSの処理開始(基本12回ループ) ********** //
+
+	// 探索を途中から始める場合のDFS初期条件をセット
+	VI_theta_tmp = 5.72409;
+	Pref_a_tmp = -0.293796;
+	Pref_b_tmp = 0.084353;
+	VI_data.Pout.ab[0] = -0.290693;
+	VI_data.Pout.ab[1] = 0.084747;
+	dfs.VI.Pout.ab[0] = VI_data.Pout.ab[0];
+	dfs.VI.Pout.ab[1] = VI_data.Pout.ab[1];
+	dfs.VV_Num[0] = 1;
+	dfs.SwCnt_min = SwCnt_limit;
+	dfs.SwCnt = 0;
+	dfs.VI.Perr_sum = 0;
+	dfs.Layer = 0;
+	dfs.VV_seq[0] = dfs.VV_Num[0]; 
+	dfs.VV_seq[1] = dfs.VV_Num[0]; 
+	VV_seq_tmp = 1;
+	time_data = 0.015925;
+	Loop_Time = 11;
+	Step_Total = DFS_MAX*Loop_Time;
 
 	//　インバータの出力可能な電圧ベクトルを計算
 	Inv_UpdateOutputVoltage(&Inv_param);
